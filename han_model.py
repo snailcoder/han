@@ -24,14 +24,21 @@ class HanModel(object):
     def inference(self, inputs):
         # inputs.shape=(batch_size, doc_len, sent_len, embedding_size)
         # Batch size of sentence level is batch_size*doc_len.
-        sent_batch_size = inputs.shape[0].value * inputs.shape[1].value
+        batch_size = inputs.shape[0].value
+        doc_len = inputs.shape[1].value
+        sent_batch_size = batch_size * doc_len
         sents = tf.reshape(
             inputs,
             [sent_batch_size, inputs.shape[2].value, self.embedding_size])
         # word_contexts.shape=(sent_batch_size, 2*word_hidden_size)
         word_contexts = self._encoder_attention(
             sents, self.word_hidden_size, self.word_attention_size)
-        
+        word_context_size = word_contexts.shape[1].value
+        docs = tf.reshape(
+            word_contexts,
+            [batch_size, doc_len, word_context_size])
+        sent_contexts = self._encoder_attention(
+            docs, self.sent_hidden_size, self.sent_attention_size)
 
     def loss(self):
         pass
