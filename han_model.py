@@ -3,7 +3,8 @@ import tensorflow as tf
 class HanModel(object):
     def __init__(self, sent_len, doc_len, vocab_size, embed_size,
                  learning_rate, keep_prob, word_hidden_size,
-                 word_attention_size, sent_hidden_size, sent_attention_size):
+                 word_attention_size, sent_hidden_size, sent_attention_size,
+                 num_classes):
         self.input_X = tf.placeholder(tf.int32,
                                       shape=(None, doc_len, sent_len))
         self.input_y = tf.placeholder(tf.float32, shape=(None,))
@@ -15,29 +16,7 @@ class HanModel(object):
         self.word_attention_size = word_attention_size
         self.sent_hidden_size = sent_hidden_size
         self.sent_attention_size = sent_attention_size
-
-    def training(self, loss, global_step):
-        optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
-        train_op = optimizer.minimize(loss, global_step)
-        return train_op
-
-    def inference(self, inputs):
-        # inputs.shape=(batch_size, doc_len, sent_len, embedding_size)
-        # Batch size of sentence level is batch_size*doc_len.
-        sent_batch_size = inputs.shape[0].value * inputs.shape[1].value
-        sents = tf.reshape(
-            inputs,
-            [sent_batch_size, inputs.shape[2].value, self.embedding_size])
-        # word_contexts.shape=(sent_batch_size, 2*word_hidden_size)
-        word_contexts = self._encoder_attention(
-            sents, self.word_hidden_size, self.word_attention_size)
-        
-
-    def loss(self):
-        pass
-
-    def evaluate(self):
-        pass
+        self.num_classes = num_classes
 
     def embedding_from_scratch(self):
         with tf.device("/cpu:0"), tf.name_scope("embedding"):
@@ -90,4 +69,59 @@ class HanModel(object):
     def _encoder_attention(self, inputs, hidden_size, attention_size):
         annotations = self._encoder(inputs, hidden_size)
         return self._attention(annotations, attention_size)
-        
+
+    def training(self, loss, global_step):
+        optimizer = tf.train.GradientDescentOptimizer(self.learning_rate)
+        train_op = optimizer.minimize(loss, global_step)
+        return train_op
+
+    def inference(self, inputs):
+        # inputs.shape=(batch_size, doc_len, sent_len, embedding_size)
+        # Batch size of sentence level is batch_size*doc_len.
+        batch_size = inputs.shape[0].value
+        doc_len = inputs.shape[1].value
+        sent_batch_size = inputs.shape[0].value * inputs.shape[1].value
+        with tf.name_scope("word_encoder_attention"):
+            sents = tf.reshape(
+                inputs,
+                [sent_batch_size, inputs.shape[2].value, self.embedding_size])
+            # word_contexts.shape=(sent_batch_size, 2*word_hidden_size)
+            word_contexts, _ = self._encoder_attention(
+                sents, self.word_hidden_size, self.word_attention_size)
+        word_context_size = word_contexts.shape[1].value
+        with tf.name_scope("sent_encoder_attention"):
+            docs = tf.reshape(
+                word_contexts,
+                [batch_size, doc_len, word_context_size])
+            # setn_contexts.shape=(batch_size, 2*sent_attention_size)
+            sent_contexts, _ = self._encoder_attention(
+                docs, self.sent_hidden_size, self.sent_attention_size)
+        sent_contexts_size = sent_contexts.shape[1].value
+        W_c = tf.Variable(
+            tf.random_normal(
+                [sent_contexts_size, self.num_classes], dtype=tf.float32))
+        b_c = tf.Variable(
+            tf.random_normal([self.num_classes], dtype=tf.float32))
+        # logits.shape=(batch_size, num_classes)
+        logits = tf.matmul(sent_contexts, W_c) + b_c
+        return logits
+
+    def loss(self, logits):
+        with tf.name_scope("loss"):
+            # xentropy.shape=(batch_size,)
+            xentropy = tf.nn.softmax_cross_entropy_with_logits(
+                logits=logits,
+                labels=self.input_y)
+            train_loss = tf.reduce_mean(xentropy)
+            return train_loss
+
+    def evaluate(self, logits):
+        # Returns the index with the largest value across axes 1 of logits.
+        # pred.shape=(batch_size,)
+        pred = tf.argmax(logits, 1, name="pred")
+        # pred.shape=(batch_size,)
+        correct = tf.argmax(self.input_y, 1, name="correct")
+        # Returns the truth value of (pred == correct) element-wise.
+        correct_pred = tf.equal(pred, correct)
+        accuracy = tf.reduce_mean(tf.cast(correct_pred, "float"), name="accuracy")
+        return accuracy
