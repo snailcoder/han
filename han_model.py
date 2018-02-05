@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 class HanModel(object):
-    def __init__(self, sent_len, doc_len, vocab_size, embed_size,
+    def __init__(self, doc_len, sent_len, vocab_size, embed_size,
                  learning_rate, keep_prob, word_hidden_size,
                  word_attention_size, sent_hidden_size, sent_attention_size,
                  num_classes):
