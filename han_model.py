@@ -36,7 +36,20 @@ class HanModel(object):
         b = tf.Variable(
             tf.random_normal([attention_size], dtype=tf.float32))
         # u.shape=(batch_size, max_time, attention_size)
-        u = tf.tanh(tf.matmul(inputs, W) + b)
+        # There is a bug in Tensorflow 1.4.1. The doc of tf.tensordot
+        # says its parameter axes could be "either a scalar N, or a list "
+        # "or an int32 Tensor of shape [2, k]". However, when set axes
+        # to be an integer, tf.tensordot will return a tensor with
+        # "unknown" shape, that is:
+        # u.get_shape() == "<unknown>"
+        # This bug has been raised in issue #6682:
+        # https://github.com/tensorflow/tensorflow/issues/6682
+        #
+        # and it is claimed to be solved in pull request #16220:
+        # https://github.com/tensorflow/tensorflow/pull/16220
+        #
+        # Anyway, using list-type parameter is a sound method.
+        u = tf.tanh(tf.tensordot(inputs, W, axes=[[1], [0]]) + b)
         context = tf.Variable(
             tf.random_normal([attention_size], dtype=tf.float32))
         # The inputs of tf.matmul must be tensors of rank >= 2
@@ -45,23 +58,28 @@ class HanModel(object):
         # Hence, tf.matmul(u, context) will throw an ValueError exception.
         # Here, I use tf.tensordot instead.
         # logits.shape=(batch_size, max_time)
-        logits = tf.tensordot(u, context, axes=1)
+        logits = tf.tensordot(u, context, axes=[[1], [0]])
         # alpha.shape=(batch_size, max_time)
         alpha = tf.nn.softmax(logits=logits)
         # Sum of array elements over the time axis.
         # sent_vec.shape=(batch_size, input_size)
-        sent_vec = tf.resuce_sum(inputs * tf.expand_dims(alpha, -1), 1)
+        sent_vec = tf.reduce_sum(inputs * tf.expand_dims(alpha, -1), 1)
         return sent_vec, alpha
 
     def _encoder(self, inputs, hidden_size):
         # inputs.shape=(batch_size, max_time, input_size)
-        fw_gru_cell = tf.contrib.rnn.GruCell(num_units=hidden_size)
-        bw_gru_cell = tf.contrib.rnn.GruCell(num_units=hidden_size)
+        # Specify different variable scopes for the LSTM cells,
+        # otherwise there will be a name collision (both cells
+        # try to use the "BiRNN_FW/RNN/BasicLSTMCell/Linear/Matrix" name)
+        with tf.variable_scope("forward"):
+            fw_gru_cell = tf.contrib.rnn.GRUCell(num_units=hidden_size)
+        with tf.variable_scope("backword"):
+            bw_gru_cell = tf.contrib.rnn.GRUCell(num_units=hidden_size)
         # outputs is a tuple (output_fw, output_bw).
         # output_fw.shape=(batch_size, max_time, hidden_size)
         # output_bw.shape=(batch_size, max_time, hidden_size)
         outputs, states = tf.nn.bidirectional_dynamic_rnn(
-            fw_gru_cell, bw_gru_cell, inputs)
+            fw_gru_cell, bw_gru_cell, inputs, dtype=tf.float32)
         # annotations.shape=(batch_size, max_time, 2*hidden_size)
         annotations = tf.concat(outputs, 2)
         return annotations
@@ -80,11 +98,13 @@ class HanModel(object):
         # Batch size of sentence level is batch_size*doc_len.
         batch_size = inputs.shape[0].value
         doc_len = inputs.shape[1].value
-        sent_batch_size = inputs.shape[0].value * inputs.shape[1].value
         with tf.name_scope("word_encoder_attention"):
+            # sent_batch_size = batch_size * inputs.shape[1].value
+            # Until now, sent_batch_size is None because batch_size is None.
+            # Hence, the first dimension of shape has to be -1. 
             sents = tf.reshape(
                 inputs,
-                [sent_batch_size, inputs.shape[2].value, self.embedding_size])
+                [-1, inputs.shape[2].value, self.embedding_size])
             # word_contexts.shape=(sent_batch_size, 2*word_hidden_size)
             word_contexts, _ = self._encoder_attention(
                 sents, self.word_hidden_size, self.word_attention_size)
@@ -92,7 +112,7 @@ class HanModel(object):
         with tf.name_scope("sent_encoder_attention"):
             docs = tf.reshape(
                 word_contexts,
-                [batch_size, doc_len, word_context_size])
+                [-1, doc_len, word_context_size])
             # setn_contexts.shape=(batch_size, 2*sent_attention_size)
             sent_contexts, _ = self._encoder_attention(
                 docs, self.sent_hidden_size, self.sent_attention_size)

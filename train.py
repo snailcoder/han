@@ -4,7 +4,6 @@ import han_model
 import data_utils
 
 tf.flags.DEFINE_string("review_path", "review.txt", "The yelp review file.")
-tf.flags.DEFINE_integer("batch_size", 64, "Batch size.")
 tf.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.flags.DEFINE_float("keep_prob", 0.5,
                       "The probability that each element is kept.")
@@ -24,17 +23,21 @@ tf.flags.DEFINE_integer("embedding_size", 200, "The word embedding size.")
 tf.flags.DEFINE_integer("num_epochs", 200, "Number of training epochs.")
 tf.flags.DEFINE_integer("batch_size", 64, "Batch size.")
 tf.flags.DEFINE_integer("eval_step", 5,
-                        "Evaluate model after this many steps")
+                        "Evaluate model after this many steps.")
+tf.flags.DEFINE_integer("early_stop_interval", 100,
+                        "Stop optimizing if no improvement found in this many"
+                        "epochs. Set this option 0 to disable early stopping.")
 FLAGS = tf.flags.FLAGS
 
 def main(_):
     data, vocab = data_utils.load_data(FLAGS.review_path)
-    unk_vocab = data_utils.replace_UNK(vocab, FLAGS.min_cnt)
+    unk_vocab = data_utils.replace_UNK(vocab, FLAGS.min_count)
     word_idx_map = data_utils.get_word_idx_map(unk_vocab)
     all_text, all_label = zip(*data)
+    labels = np.array(all_label)
     indexed_docs = data_utils.docs2mat(all_text, FLAGS.max_doc_len,
                                        FLAGS.max_sent_len, word_idx_map)
-    folds = data_utils.split_train_test(indexed_docs, all_label)
+    folds = data_utils.split_train_test(indexed_docs, labels)
     with tf.Graph().as_default():
         sess = tf.Session()
         with sess.as_default():
@@ -44,7 +47,7 @@ def main(_):
                                     FLAGS.learning_rate, FLAGS.keep_prob,
                                     FLAGS.gru_size, FLAGS.context_size,
                                     FLAGS.gru_size, FLAGS.context_size,
-                                    all_label.shape[1])
+                                    labels.shape[1])
             embedding = han.embedding_from_scratch()
             logits = han.inference(embedding)
             global_step = tf.Variable(0, name="global_step", trainable=False)
@@ -58,6 +61,8 @@ def main(_):
                 test_X, test_y = zip(*test_data)
                 num_batches = int(
                     np.ceil(len(train_data) / FLAGS.batch_size))
+                best_eval_accuracy = 0.0
+                last_improvement_epoch = 0
                 for epoch in range(FLAGS.num_epochs):
                     shuffled_indices = np.random.permutation(len(train_data))
                     shuffled_data = train_data[shuffled_indices]
@@ -75,6 +80,13 @@ def main(_):
                         val_feed_dict = {han.input_X: np.array(test_X),
                                          han.input_y: np.array(test_y)}
                         accuracy = sess.run(eval_op, feed_dict=val_feed_dict)
+                        if accuracy > best_eval_accuracy:
+                            best_eval_accuracy = accuracy
+                            last_improvement_epoch = epoch
+                    if (FLAGS.early_stop_interval > 0
+                        and last_improvement_epoch - epoch > FLAGS.early_stop_interval):
+                        break
+                break
                         
 
 if __name__ == "__main__":

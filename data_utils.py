@@ -73,12 +73,13 @@ def doc2mat(doc, max_doc_len, max_sent_len, word_idx_map):
     sentences = tokenize.sent_tokenize(doc)
     i = 0
     while i < len(sentences) and i < max_doc_len:
-        row = []
+        row = [0] * max_sent_len
         words = sentences[i].split()
         j = 0
         while j < len(words) and j < max_sent_len:
             idx = word_idx_map.get(words[j], 0)
-            row.append(idx)
+            row[j] = idx
+            j += 1
         mat[i] = row
         i += 1
     return mat
