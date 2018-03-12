@@ -9,7 +9,7 @@ tf.flags.DEFINE_float("keep_prob", 0.5,
                       "The probability that each element is kept.")
 tf.flags.DEFINE_integer("gru_size", 50,
                         "The number of units int the GRU cell.")
-tf.flags.DEFINE_integer("context_size", 100,
+tf.flags.DEFINE_integer("context_size", 80,
                         "The size of word/sentence context vectors.")
 tf.flags.DEFINE_integer("min_count", 5,
                         "The word of which frequency is less than "
@@ -43,7 +43,7 @@ def main(_):
         with sess.as_default():
             # Create essential model and operators.
             han =han_model.HanModel(FLAGS.max_doc_len, FLAGS.max_sent_len,
-                                    len(unk_vocab), FLAGS.embedding_size,
+                                    len(word_idx_map), FLAGS.embedding_size,
                                     FLAGS.learning_rate, FLAGS.keep_prob,
                                     FLAGS.gru_size, FLAGS.context_size,
                                     FLAGS.gru_size, FLAGS.context_size,
