@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import han_model
 import data_utils
+from datetime import datetime
 
 tf.flags.DEFINE_string("review_path", "review.txt", "The yelp review file.")
 tf.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
@@ -27,6 +28,7 @@ tf.flags.DEFINE_integer("eval_step", 5,
 tf.flags.DEFINE_integer("early_stop_interval", 100,
                         "Stop optimizing if no improvement found in this many"
                         "epochs. Set this option 0 to disable early stopping.")
+tf.flags.DEFINE_string("record_dir", "tf_record", "Write logs to this dir.")
 FLAGS = tf.flags.FLAGS
 
 def main(_):
@@ -39,6 +41,7 @@ def main(_):
                                        FLAGS.max_sent_len, word_idx_map)
     folds = data_utils.split_train_test(indexed_docs, labels)
     with tf.Graph().as_default():
+         # Set log and checkpoint dir for saving and restoring model.
         sess = tf.Session()
         with sess.as_default():
             # Create essential model and operators.
@@ -54,9 +57,16 @@ def main(_):
             loss_op = han.loss(logits)
             train_op = han.training(loss_op, global_step)
             eval_op = han.evaluate(logits)
+            # Merge all summaries.
+            merged_summaries = tf.summary.merge_all()
+            # Create summary writers for trainning and testing respectively.
+            train_writer = tf.summary.FileWriter(
+                FLAGS.record_dir + "/train", sess.graph)
+            test_writer = tf.summary.FileWriter(FLAGS.record_dir + "/test")
             # Now feed the data.
             init = tf.global_variables_initializer()
             sess.run(init)
+            saver = tf.train.Saver()
             for train_data, test_data in folds:
                 test_X, test_y = zip(*test_data)
                 num_batches = int(
@@ -73,16 +83,23 @@ def main(_):
                         X_batch, y_batch = zip(*cur_batch)
                         train_feed_dict = {han.input_X: np.array(X_batch),
                                            han.input_y: np.array(y_batch)}
-                        _, loss = sess.run([train_op, loss_op],
-                                           feed_dict=train_feed_dict)
+                        summary, _, loss, step = sess.run(
+                            [merged_summaries, train_op, loss_op, global_step],
+                            feed_dict=train_feed_dict)
+                        train_writer.add_summary(summary, step)
                     if (epoch % FLAGS.eval_step == 0
                         or epoch == FLAGS.num_epochs - 1):
                         val_feed_dict = {han.input_X: np.array(test_X),
                                          han.input_y: np.array(test_y)}
-                        accuracy = sess.run(eval_op, feed_dict=val_feed_dict)
+                        summary, accuracy, step = sess.run(
+                            [merged_summaries, eval_op, global_step],
+                            feed_dict=val_feed_dict)
+                        test_writer.add_summary(summary, step)
                         if accuracy > best_eval_accuracy:
                             best_eval_accuracy = accuracy
                             last_improvement_epoch = epoch
+                            saver.save(sess, FLAGS.tf_record,
+                                       global_step=global_step)
                     if (FLAGS.early_stop_interval > 0
                         and last_improvement_epoch - epoch > FLAGS.early_stop_interval):
                         break

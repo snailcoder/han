@@ -61,6 +61,7 @@ class HanModel(object):
         logits = tf.tensordot(u, context, axes=[[2], [0]])
         # alpha.shape=(batch_size, max_time)
         alpha = tf.nn.softmax(logits=logits)
+        tf.summary.histogram("alpah", alpha)
         # Sum of array elements over the time axis.
         # sent_vec.shape=(batch_size, input_size)
         sent_vec = tf.reduce_sum(inputs * tf.expand_dims(alpha, -1), 1)
@@ -110,6 +111,7 @@ class HanModel(object):
             word_contexts, _ = self._encoder_attention(
                 sents, self.word_hidden_size,
                 self.word_attention_size, "word_context")
+            tf.summary.histogram("word_contexts", word_contexts)
         word_context_size = word_contexts.shape[1].value
         with tf.name_scope("sent_encoder_attention"):
             docs = tf.reshape(
@@ -119,6 +121,7 @@ class HanModel(object):
             sent_contexts, _ = self._encoder_attention(
                 docs, self.sent_hidden_size,
                 self.sent_attention_size, "sent_context")
+            tf.summary.histogram("sent_contexts", sent_contexts)
         sent_contexts_size = sent_contexts.shape[1].value
         W_c = tf.Variable(
             tf.random_normal(
@@ -136,6 +139,7 @@ class HanModel(object):
                 logits=logits,
                 labels=self.input_y)
             train_loss = tf.reduce_mean(xentropy)
+            tf.summary.scalar("loss", train_loss)
             return train_loss
 
     def evaluate(self, logits):
@@ -147,4 +151,5 @@ class HanModel(object):
         # Returns the truth value of (pred == correct) element-wise.
         correct_pred = tf.equal(pred, correct)
         accuracy = tf.reduce_mean(tf.cast(correct_pred, "float"), name="accuracy")
+        tf.summary.scalar("accuracy", accuracy)
         return accuracy
