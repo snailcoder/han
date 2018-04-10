@@ -2,16 +2,14 @@ import tensorflow as tf
 
 class HanModel(object):
     def __init__(self, doc_len, sent_len, vocab_size, embed_size,
-                 learning_rate, keep_prob, word_hidden_size,
-                 word_attention_size, sent_hidden_size, sent_attention_size,
-                 num_classes):
-        self.input_X = tf.placeholder(tf.int32,
-                                      shape=(None, doc_len, sent_len))
+                 learning_rate, word_hidden_size, word_attention_size,
+                 sent_hidden_size, sent_attention_size, num_classes):
+        self.input_X = tf.placeholder(
+            tf.int32, shape=(None, doc_len, sent_len))
         self.input_y = tf.placeholder(tf.float32, shape=(None, num_classes))
         self.vocab_size = vocab_size
         self.embedding_size = embed_size
         self.learning_rate = learning_rate
-        self.keep_prob = keep_prob
         self.word_hidden_size = word_hidden_size
         self.word_attention_size = word_attention_size
         self.sent_hidden_size = sent_hidden_size
